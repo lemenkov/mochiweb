@@ -12,15 +12,15 @@
 %%      type such as "text/html". Will return the atom undefined if no good
 %%      guess is available.
 from_extension(".html") ->
-    "text/html";
+    "text/html; charset=utf-8";
 from_extension(".xhtml") ->
     "application/xhtml+xml";
 from_extension(".xml") ->
     "application/xml";
 from_extension(".css") ->
-    "text/css";
+    "text/css; charset=utf-8";
 from_extension(".js") ->
-    "application/x-javascript";
+    "application/x-javascript; charset=utf-8";
 from_extension(".jpg") ->
     "image/jpeg";
 from_extension(".gif") ->
