@@ -28,6 +28,7 @@
          acceptor_pool_size=16,
          ssl=false,
          ssl_opts=[{ssl_imp, new}],
+         ip_tos=null,
          acceptor_pool=sets:new(),
          profile_fun=undefined}).
 
@@ -98,6 +99,8 @@ parse_options([{backlog, Backlog} | Rest], State) ->
     parse_options(Rest, State#mochiweb_socket_server{backlog=Backlog});
 parse_options([{nodelay, NoDelay} | Rest], State) ->
     parse_options(Rest, State#mochiweb_socket_server{nodelay=NoDelay});
+parse_options([{ip_tos, Tos} | Rest], State) ->
+    parse_options(Rest, State#mochiweb_socket_server{ip_tos=Tos});
 parse_options([{acceptor_pool_size, Max} | Rest], State) ->
     MaxInt = ensure_int(Max),
     parse_options(Rest,
@@ -145,7 +148,7 @@ ipv6_supported() ->
             false
     end.
 
-init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=NoDelay}) ->
+init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=NoDelay, ip_tos=Tos}) ->
     process_flag(trap_exit, true),
     BaseOpts = [binary,
                 {reuseaddr, true},
@@ -154,7 +157,7 @@ init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=No
                 {recbuf, ?RECBUF_SIZE},
                 {active, false},
                 {nodelay, NoDelay}],
-    Opts = case Ip of
+    BaseOpts1 = case Ip of
         any ->
             case ipv6_supported() of % IPv4, and IPv6 if supported
                 true -> [inet, inet6 | BaseOpts];
@@ -164,6 +167,10 @@ init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=No
             [inet, {ip, Ip} | BaseOpts];
         {_, _, _, _, _, _, _, _} -> % IPv6
             [inet6, {ip, Ip} | BaseOpts]
+    end,
+    Opts = case Tos of
+       Value when is_integer(Tos) -> [{tos, Value} | BaseOpts1];
+       _ -> BaseOpts1
     end,
     case listen(Port, Opts, State) of
         {stop, eacces} ->
@@ -190,9 +197,14 @@ init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=No
 new_acceptor_pool(Listen,
                   State=#mochiweb_socket_server{acceptor_pool=Pool,
                                                 acceptor_pool_size=Size,
-                                                loop=Loop}) ->
+                                                loop=Loop,
+                                                ip_tos=Tos}) ->
     F = fun (_, S) ->
-                Pid = mochiweb_acceptor:start_link(self(), Listen, Loop),
+                SocketOpts = case Tos of
+                    Value when is_integer(Tos) -> [{tos, Value}];
+                    _ -> []
+                end,
+                Pid = mochiweb_acceptor:start_link(self(), Listen, Loop, SocketOpts),
                 sets:add_element(Pid, S)
         end,
     Pool1 = lists:foldl(F, Pool, lists:seq(1, Size)),
@@ -288,10 +300,15 @@ recycle_acceptor(Pid, State=#mochiweb_socket_server{
                         acceptor_pool=Pool,
                         listen=Listen,
                         loop=Loop,
-                        active_sockets=ActiveSockets}) ->
+                        active_sockets=ActiveSockets,
+                        ip_tos=Tos}) ->
     case sets:is_element(Pid, Pool) of
         true ->
-            Acceptor = mochiweb_acceptor:start_link(self(), Listen, Loop),
+            SocketOpts = case Tos of
+                Value when is_integer(Tos) -> [{tos, Value}];
+                _ -> []
+            end,
+            Acceptor = mochiweb_acceptor:start_link(self(), Listen, Loop, SocketOpts),
             Pool1 = sets:add_element(Acceptor, sets:del_element(Pid, Pool)),
             State#mochiweb_socket_server{acceptor_pool=Pool1};
         false ->

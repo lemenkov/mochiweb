@@ -8,21 +8,21 @@
 
 -include("internal.hrl").
 
--export([start_link/3, init/3]).
+-export([start_link/4, init/4]).
 
-start_link(Server, Listen, Loop) ->
-    proc_lib:spawn_link(?MODULE, init, [Server, Listen, Loop]).
+start_link(Server, Listen, Loop, SocketOpts) ->
+    proc_lib:spawn_link(?MODULE, init, [Server, Listen, Loop, SocketOpts]).
 
-init(Server, Listen, Loop) ->
+init(Server, Listen, Loop, SocketOpts) ->
     T1 = now(),
     case catch mochiweb_socket:accept(Listen) of
         {ok, Socket} ->
             gen_server:cast(Server, {accepted, self(), timer:now_diff(now(), T1)}),
-            call_loop(Loop, Socket);
+            call_loop_opts(Loop, Socket, SocketOpts);
         {error, closed} ->
             exit(normal);
         {error, timeout} ->
-            init(Server, Listen, Loop);
+            init(Server, Listen, Loop, SocketOpts);
         {error, esslaccept} ->
             exit(normal);
         Other ->
@@ -32,6 +32,12 @@ init(Server, Listen, Loop) ->
                lists:flatten(io_lib:format("~p", [Other]))]),
             exit({error, accept_failed})
     end.
+
+call_loop_opts(Loop, Socket, []) ->
+    call_loop(Loop, Socket);
+call_loop_opts(Loop, Socket, SocketOpts) ->
+    inet:setopts(SocketOpts),
+    call_loop(Loop, Socket).
 
 call_loop({M, F}, Socket) ->
     M:F(Socket);
