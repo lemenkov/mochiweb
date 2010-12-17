@@ -36,7 +36,7 @@ init(Server, Listen, Loop, SocketOpts) ->
 call_loop_opts(Loop, Socket, []) ->
     call_loop(Loop, Socket);
 call_loop_opts(Loop, Socket, SocketOpts) ->
-    inet:setopts(SocketOpts),
+    inet:setopts(Socket, SocketOpts),
     call_loop(Loop, Socket).
 
 call_loop({M, F}, Socket) ->
