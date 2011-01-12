@@ -16,7 +16,8 @@
 -export([start_response/1, start_response_length/1, start_raw_response/1]).
 -export([respond/1, ok/1]).
 -export([not_found/0, not_found/1]).
--export([parse_post/0, parse_qs/0]).
+-export([parse_post/0, parse_post_utf8/0, parse_post_utf8/2]).
+-export([parse_qs/0, parse_qs_utf8/0, parse_qs_utf8/2]).
 -export([should_close/0, cleanup/0]).
 -export([parse_cookie/0, get_cookie_value/1]).
 -export([serve_file/2, serve_file/3]).
@@ -24,11 +25,13 @@
 -export([accepts_content_type/1]).
 
 -define(SAVE_QS, mochiweb_request_qs).
+-define(SAVE_QS_UTF8, mochiweb_request_qs_utf8).
 -define(SAVE_PATH, mochiweb_request_path).
 -define(SAVE_RECV, mochiweb_request_recv).
 -define(SAVE_BODY, mochiweb_request_body).
 -define(SAVE_BODY_LENGTH, mochiweb_request_body_length).
 -define(SAVE_POST, mochiweb_request_post).
+-define(SAVE_POST_UTF8, mochiweb_request_post_utf8).
 -define(SAVE_COOKIE, mochiweb_request_cookie).
 -define(SAVE_FORCE_CLOSE, mochiweb_request_force_close).
 
@@ -422,6 +425,16 @@ parse_qs() ->
             Cached
     end.
 
+%% @spec parse_qs() -> [{Key::string(), Value::string()}]
+%% @doc parse_qs, with values converted correctly from utf8 
+parse_qs_utf8() -> 
+    parse_kv_utf8(false, true, fun parse_qs/0, ?SAVE_QS_UTF8).
+
+%% @spec parse_qs(ParseKeys::bool, ParseValues::bool) -> [{Key::string(), Value::string()}]
+%% @doc parse_qs, with keys and/or values converted correctly from utf8
+parse_qs_utf8(ParseKeys, ParseValues) -> 
+    parse_kv_utf8(ParseKeys, ParseValues, fun parse_qs/0, ?SAVE_QS_UTF8).
+
 %% @spec get_cookie_value(Key::string) -> string() | undefined
 %% @doc Get the value of the given cookie.
 get_cookie_value(Key) ->
@@ -445,6 +458,16 @@ parse_cookie() ->
     end.
 
 %% @spec parse_post() -> [{Key::string(), Value::string()}]
+%% @doc parse_post, with values converted correctly from utf8
+parse_post_utf8() ->
+    parse_kv_utf8(false, true, fun parse_post/0, ?SAVE_POST_UTF8).
+
+%% @spec parse_post(ParseKeys::bool, ParseValues::bool) -> [{Key::string(), Value::string()}]
+%% @doc parse_post() but with keys and/or converted correctly from utf8
+parse_post_utf8(ParseKeys, ParseValues) ->
+    parse_kv_utf8(ParseKeys, ParseValues, fun parse_post/0, ?SAVE_POST_UTF8).
+
+%% @spec parse_post() -> [{Key::string(), Value::string()}]
 %% @doc Parse an application/x-www-form-urlencoded form POST. This
 %%      has the side-effect of calling recv_body().
 parse_post() ->
@@ -462,6 +485,28 @@ parse_post() ->
                              end
                      end,
             put(?SAVE_POST, Parsed),
+            Parsed;
+        Cached ->
+            Cached
+    end.
+
+%% @spec parse_kv_utf8(ParseKeys::bool, ParseValues::bool, KVFun::fun(), CacheKey::atom) -> [{Key::string(), Value::string()}]
+%% @doc Parse a string proplist running keys and/or values through xmerl_ucs:from_utf8/1, caching in process dict.
+parse_kv_utf8(ParseKeys, ParseValues, KVFun, CacheKey) ->
+    case erlang:get(CacheKey) of
+        undefined ->
+            Parsed = [ begin
+                           case ParseKeys of
+                               true  -> NewK = xmerl_ucs:from_utf8(K);
+                               false -> NewK = K
+                           end,
+                           case ParseValues of
+                               true  -> NewV = xmerl_ucs:from_utf8(V);
+                               false -> NewV = V
+                           end,
+                           {NewK, NewV}
+                       end || {K,V} <- KVFun() ],
+            put(CacheKey, Parsed),
             Parsed;
         Cached ->
             Cached
